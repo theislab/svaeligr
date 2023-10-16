@@ -15,4 +15,4 @@ The jupyter notebooks of this implementation were tested with the packages of th
 - pandas == 1.5.3
 
 ## References:
-This work is based on the implementation of svae+ by lopez et al. The original implementation can be found at: https://github.com/Genentech/sVAE/tree/main
+This work is based on the implementation of sVAE+ by Lopez et al. The original implementation can be found at: https://github.com/Genentech/sVAE/tree/main
