@@ -1,0 +1,9 @@
+LICENSE.md
+NOTICE.md
+README.md
+pyproject.toml
+setup.py
+svae.egg-info/PKG-INFO
+svae.egg-info/SOURCES.txt
+svae.egg-info/dependency_links.txt
+svae.egg-info/top_level.txt
