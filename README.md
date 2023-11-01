@@ -1,5 +1,8 @@
-# sVAE liger
-Our implementation is an extension of sVAE+ with learnable interventions. 
+# sVAE ligr
+An extension of Spike-Slab Variational Autoencoder for causal representation learning with learnable interventions. 
+
+![svae_ligr_graphical_abstract_transbg](https://github.com/theislab/svaeligr/assets/7257233/23d1cb8e-a7ea-4cdb-b932-da86ee76d379)
+
 
 ### Installation
 Download or clone this repository. Then from inside the folder simply run:
