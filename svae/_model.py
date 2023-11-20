@@ -670,7 +670,10 @@ class SpikeSlabVAE(
         
         
         for key in keys:
-            scvi_state_dict[key] = new_state_dict[key]
+            try:
+                scvi_state_dict[key] = new_state_dict[key]
+            except KeyError:
+                pass
 
         
 #         scvi_state_dict['decoder.px_decoder.fc_layers.Layer 0.0.weight'] = scvi_state_dict['decoder.px_decoder.fc_layers.Layer 0.0.weight'][:,:self.module.n_latent]
