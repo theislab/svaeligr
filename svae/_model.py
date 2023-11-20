@@ -222,7 +222,7 @@ class UnsupervisedTrainingMixin:
                                          self.generative_replay_adata_manager,
                                          self.replay_adata_manager, self.device,
                                          **plan_kwargs)
-        elif self.module.learnable_actions:
+        elif self.module.learnable_actions and not self.useCLTrainingPlan:
             training_plan = CLTrainingPlan(self.module, 
                                            self.generative_replay_dl,
                                            self.generative_replay_adata_manager,
@@ -357,6 +357,7 @@ class SpikeSlabVAE(
             
         )
         self.init_params_ = self._get_init_params(locals())
+        self.module.useCLTrainingPlan = self.useCLTrainingPlan
 
     @classmethod
     @setup_anndata_dsp.dedent
@@ -660,6 +661,17 @@ class SpikeSlabVAE(
         scvi_state_dict['gumbel_action.log_alpha'] = new_state_dict['gumbel_action.log_alpha']
         scvi_state_dict['gumbel_action.fixed_mask'] = new_state_dict['gumbel_action.fixed_mask']
         scvi_state_dict['action_prior_mean'] = new_state_dict['action_prior_mean']
+        keys = ['gumbel_action.log_alpha_encoder.0.fc_layers.Layer 0.0.weight', 
+              'gumbel_action.log_alpha_encoder.0.fc_layers.Layer 0.0.bias',
+               'gumbel_action.log_alpha_encoder.0.fc_layers.Layer 1.0.weight',
+              'gumbel_action.log_alpha_encoder.0.fc_layers.Layer 1.0.bias',
+              'gumbel_action.log_alpha_encoder.1.weight',
+              'gumbel_action.log_alpha_encoder.1.bias']
+        
+        
+        for key in keys:
+            scvi_state_dict[key] = new_state_dict[key]
+
         
 #         scvi_state_dict['decoder.px_decoder.fc_layers.Layer 0.0.weight'] = scvi_state_dict['decoder.px_decoder.fc_layers.Layer 0.0.weight'][:,:self.module.n_latent]
 #         scvi_state_dict['decoder.px_decoder.fc_layers.Layer 1.0.weight'] = scvi_state_dict['decoder.px_decoder.fc_layers.Layer 1.0.weight'][:,:128] # temp fix
