@@ -156,7 +156,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
         self.action_prior_mean = torch.nn.parameter.Parameter(
             torch.randn((n_labels, n_latent))
         )
-
+        # mixture weights
         self.w = torch.nn.Parameter(torch.zeros(self.action_prior_mean.shape[0],1,1))
 
 
@@ -334,6 +334,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
             px=px,
             pl=pl,
             pz=pz,
+            putative_labels = y_multinom_labels
         )
 
     def freeze_params(self):
@@ -429,13 +430,15 @@ class SpikeSlabVAEModule(BaseModuleClass):
         #w = w.squeeze()
         #batch_size = x.shape[0]
         #indexes = torch.multinomial(w, batch_size, replacement = True)
-        #mean_qz = inference_outputs['qz'].mean
-        #scale_qz = inference_outputs['qz'].scale
-        #mean_qz = mean_qz[indexes]
-        #scale_qz = scale_qz[indexes]
+        
+        indexes = generative_outputs['putative_labels']
+        mean_qz = inference_outputs['qz'].mean
+        scale_qz = inference_outputs['qz'].scale
+        mean_qz = mean_qz[indexes]
+        scale_qz = scale_qz[indexes]
 
 
-        #inference_outputs['qz'] = torch.distributions.normal.Normal(mean_qz, scale_qz)
+        inference_outputs['qz'] = torch.distributions.normal.Normal(mean_qz, scale_qz)
 
         kl_divergence_z = kl(inference_outputs["qz"], generative_outputs["pz"]).sum(
             dim=1
@@ -472,6 +475,14 @@ class SpikeSlabVAEModule(BaseModuleClass):
         logp_w = (
             torch.distributions.Beta(prior_w, prior_w * self.sparse_mask_penalty)
             .log_prob(p_discrete)
+            .sum()
+        )
+
+        # mixture weight prior
+        prior_mw = torch.ones_like(self.w)
+        logp_mw = (
+            torch.distributions.Beta(prior_mw, prior_mw)
+            .log_prob(self.w)
             .sum()
         )
         
@@ -524,7 +535,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
             
             loss = (
                 n_obs * torch.mean(reconst_loss + weighted_kl_local)
-                + kl_weight * kl_global + replay_importance*replay_loss + ewc_importance*penalty
+                + kl_weight * kl_global + replay_importance*replay_loss + ewc_importance*penalty + logp_mw
             )
         else:
             loss = n_obs * torch.mean(reconst_loss + weighted_kl_local) + replay_importance*replay_loss + ewc_importance*penalty
