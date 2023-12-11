@@ -535,7 +535,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
             
             loss = (
                 n_obs * torch.mean(reconst_loss + weighted_kl_local)
-                + kl_weight * kl_global + replay_importance*replay_loss + ewc_importance*penalty + logp_mw
+                + kl_weight * kl_global + replay_importance*replay_loss + ewc_importance*penalty - logp_mw
             )
         else:
             loss = n_obs * torch.mean(reconst_loss + weighted_kl_local) + replay_importance*replay_loss + ewc_importance*penalty
