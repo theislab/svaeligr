@@ -317,7 +317,8 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # prune out entries according to mask
         mean_z_pruned = mean_z*mask
         #order labels
-        w = torch.nn.functional.softmax(self.w, dim=0)
+        #w = torch.nn.functional.softmax(self.w, dim=0)
+        w = torch.sigmoid(self.w)
         w = w.squeeze()
         batch_size = mean_z_pruned.shape[0]
         y_multinom_labels = torch.multinomial(w, batch_size, replacement = True)
@@ -474,7 +475,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         # mixture weight prior
         prior_mw = torch.ones_like(self.w)
-        w_discrete = torch.sigmoid(self.w)
+        w_discrete =  torch.sigmoid(self.w) # torch.nn.functional.softmax(self.w, dim=0)
         logp_mw = (
             torch.distributions.Beta(prior_mw, prior_mw*self.sparse_mask_penalty)
             .log_prob(w_discrete)
