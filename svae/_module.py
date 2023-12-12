@@ -157,7 +157,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
             torch.randn((n_labels, n_latent))
         )
         # mixture weights
-        self.w = torch.nn.Parameter(torch.zeros(self.action_prior_mean.shape[0],1,1))
+        self.w = torch.nn.Parameter(torch.randn(self.action_prior_mean.shape[0],1,1))
 
 
         # p_a
@@ -318,7 +318,6 @@ class SpikeSlabVAEModule(BaseModuleClass):
         mean_z_pruned = mean_z*mask
         #order labels
         w = torch.nn.functional.softmax(self.w, dim=0)
-        print(f'w: {w}')
         w = w.squeeze()
         batch_size = mean_z_pruned.shape[0]
         y_multinom_labels = torch.multinomial(w, batch_size, replacement = True)
@@ -425,11 +424,6 @@ class SpikeSlabVAEModule(BaseModuleClass):
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         
-        #w = torch.nn.functional.softmax(self.w, dim=0)
-        #print(f'w: {w}')
-        #w = w.squeeze()
-        #batch_size = x.shape[0]
-        #indexes = torch.multinomial(w, batch_size, replacement = True)
         
         indexes = generative_outputs['putative_labels']
         mean_qz = inference_outputs['qz'].mean
@@ -480,12 +474,12 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         # mixture weight prior
         prior_mw = torch.ones_like(self.w)
+        w_discrete = torch.sigmoid(self.w)
         logp_mw = (
-            torch.distributions.Beta(prior_mw, prior_mw)
-            .log_prob(self.w)
+            torch.distributions.Beta(prior_mw, prior_mw*self.sparse_mask_penalty)
+            .log_prob(w_discrete)
             .sum()
         )
-        
         
         replay_loss = torch.tensor(0.0)
         replay_loss = replay_loss.to(self.device)
