@@ -656,7 +656,7 @@ def _generic_forward(
         )
         replay_inference_outputs = module.inference(**replay_inference_inputs, **inference_kwargs)
         replay_generative_inputs = module._get_generative_input(
-            replay_tensors, generative_replay_tensors, replay_inference_outputs, **get_generative_input_kwargs
+            replay_tensors, replay_inference_outputs, generative_replay_tensors, **get_generative_input_kwargs
         )
         replay_generative_outputs = module.generative(**replay_generative_inputs, **generative_kwargs)
     
