@@ -157,7 +157,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
             torch.randn((n_labels, n_latent))
         )
         # mixture weights
-        self.w = torch.nn.Parameter(torch.randn(self.action_prior_mean.shape[0],1,1))
+        self.w = torch.nn.Parameter(torch.randn(self.action_prior_mean.shape[0]))
 
 
         # p_a
@@ -311,20 +311,29 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         # subsample actions we care about
         # extract chemical specific means
+
+        # print(y)
+        # print(y[:,0].long())
+        # print(mask)
+
+        
+        
         mean_z = torch.index_select(
             self.action_prior_mean, 0, y[:, 0].long().to(self.action_prior_mean.device)
         )  # batch x latent dim
+
+        
         # prune out entries according to mask
-        mean_z_pruned = mean_z*mask
+        # mean_z_pruned = mean_z*mask
         #order labels
-        w = torch.sigmoid(self.w)
-        w = w.squeeze()
-        batch_size = mean_z_pruned.shape[0]
-        y_multinom_labels = torch.multinomial(w, batch_size, replacement = True)
-        y_order = self.match_and_sort_labels(y[:,0], y_multinom_labels)
-        mean_z_pruned = mean_z_pruned[y_order,:]
+        # w = torch.sigmoid(self.w)
+        # w = w.squeeze()
+        # batch_size = mean_z_pruned.shape[0]
+        # y_multinom_labels = torch.multinomial(w, batch_size, replacement = True)
+        # y_order = self.match_and_sort_labels(y[:,0], y_multinom_labels)
+        # mean_z_pruned = mean_z_pruned[y_order,:]
         if self.use_chem_prior:
-            pz = Normal(mean_z_pruned, torch.ones_like(z))
+            pz = Normal(mean_z*mask, torch.ones_like(z))
         else:
             pz = Normal(torch.zeros_like(z), torch.ones_like(z))
         # we will enforce proba of mask to be sparse, so that means that most of the time mask should be zero, and turn off the action specific prior
@@ -333,7 +342,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
             px=px,
             pl=pl,
             pz=pz,
-            putative_labels = y_multinom_labels
+            putative_labels = y[:, 0].long()
         )
 
     def freeze_params(self):
@@ -425,13 +434,19 @@ class SpikeSlabVAEModule(BaseModuleClass):
         x = tensors[REGISTRY_KEYS.X_KEY]
         
         
-        indexes = generative_outputs['putative_labels']
+        m = generative_outputs['putative_labels']
+
+        # cluster assignment based on incoming labels (rather than all classes)
+        w_ = torch.index_select(
+            torch.sigmoid(self.w), 0, m.to(self.action_prior_mean.device)
+        )
+      
+        clust_idx = torch.multinomial(w_, x.shape[0], replacement = True)
+
         mean_qz = inference_outputs['qz'].mean
         scale_qz = inference_outputs['qz'].scale
-        mean_qz = mean_qz[indexes]
-        scale_qz = scale_qz[indexes]
-
-
+        mean_qz = mean_qz[clust_idx]
+        scale_qz = scale_qz[clust_idx]
         inference_outputs['qz'] = torch.distributions.normal.Normal(mean_qz, scale_qz)
 
         kl_divergence_z = kl(inference_outputs["qz"], generative_outputs["pz"]).sum(
@@ -475,7 +490,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # mixture weight prior
         prior_mw = torch.ones_like(self.w)
         w_discrete =  torch.sigmoid(self.w) # torch.nn.functional.softmax(self.w, dim=0)
-        logp_mw = (
+        logp_mw = -(
             torch.distributions.Beta(prior_mw, prior_mw*self.sparse_mask_penalty)
             .log_prob(w_discrete)
             .sum()
@@ -529,14 +544,14 @@ class SpikeSlabVAEModule(BaseModuleClass):
             
             loss = (
                 n_obs * torch.mean(reconst_loss + weighted_kl_local)
-                + kl_weight * kl_global + replay_importance*replay_loss + ewc_importance*penalty - logp_mw
+                + kl_weight * kl_global + replay_importance*replay_loss + ewc_importance*penalty + logp_mw
             )
         else:
             loss = n_obs * torch.mean(reconst_loss + weighted_kl_local) + replay_importance*replay_loss + ewc_importance*penalty
             kl_global = torch.tensor(0.0)
 
         return LossRecorder(loss, reconst_loss, kl_local, kl_global, replay_reconst_loss=torch.mean(replay_reconst_loss),
-                            ewc_loss=penalty, mixture_weight_prior = logp_mw)
+                            ewc_loss=penalty, mixture_weight_prior = logp_mw) 
 
     @torch.no_grad()
     @auto_move_data

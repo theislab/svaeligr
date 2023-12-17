@@ -358,7 +358,6 @@ class SpikeSlabVAE(
         )
         self.init_params_ = self._get_init_params(locals())
         self.module.useCLTrainingPlan = self.useCLTrainingPlan
-        self.was_pretrained = False
 
     @classmethod
     @setup_anndata_dsp.dedent
