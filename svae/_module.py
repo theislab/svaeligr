@@ -438,15 +438,25 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         # cluster assignment based on incoming labels (rather than all classes)
         w_ = torch.index_select(
-            torch.sigmoid(self.w), 0, m.to(self.action_prior_mean.device)
+            torch.sigmoid(self.w), 0, torch.unique(m.to(self.action_prior_mean.device))
         )
       
         clust_idx = torch.multinomial(w_, x.shape[0], replacement = True)
 
+        # print(m)
+        # print(w_)
+        # print(clust_idx)
+
+        
+        
         mean_qz = inference_outputs['qz'].mean
         scale_qz = inference_outputs['qz'].scale
-        mean_qz = mean_qz[clust_idx]
-        scale_qz = scale_qz[clust_idx]
+        mean_qz = torch.index_select(
+            mean_qz, 0, clust_idx.to(self.action_prior_mean.device)
+        )
+        scale_qz = torch.index_select(
+            scale_qz, 0, clust_idx.to(self.action_prior_mean.device)
+        )
         inference_outputs['qz'] = torch.distributions.normal.Normal(mean_qz, scale_qz)
 
         kl_divergence_z = kl(inference_outputs["qz"], generative_outputs["pz"]).sum(
