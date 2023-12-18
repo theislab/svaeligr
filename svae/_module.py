@@ -316,10 +316,26 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # print(y[:,0].long())
         # print(mask)
 
+
+        # cluster assignment based on incoming labels (rather than all classes)
+        w_ = torch.index_select(
+            torch.sigmoid(self.w), 0, torch.unique(y[:, 0].long().to(self.action_prior_mean.device))
+        )
+      
+        clust_idx = torch.multinomial(w_, z.shape[0], replacement = True)
+
+        # print(m)
+        # print(w_)
+        # print(clust_idx)
+
         
         
+        # mean_z = torch.index_select(
+        #     self.action_prior_mean, 0, y[:, 0].long().to(self.action_prior_mean.device)
+        # )  # batch x latent dim
+
         mean_z = torch.index_select(
-            self.action_prior_mean, 0, y[:, 0].long().to(self.action_prior_mean.device)
+            self.action_prior_mean, 0, clust_idx.to(self.action_prior_mean.device)
         )  # batch x latent dim
 
         
@@ -342,7 +358,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
             px=px,
             pl=pl,
             pz=pz,
-            putative_labels = y[:, 0].long()
+            putative_labels = clust_idx
         )
 
     def freeze_params(self):
@@ -434,21 +450,8 @@ class SpikeSlabVAEModule(BaseModuleClass):
         x = tensors[REGISTRY_KEYS.X_KEY]
         
         
-        m = generative_outputs['putative_labels']
+        clust_idx = generative_outputs['putative_labels']
 
-        # cluster assignment based on incoming labels (rather than all classes)
-        w_ = torch.index_select(
-            torch.sigmoid(self.w), 0, torch.unique(m.to(self.action_prior_mean.device))
-        )
-      
-        clust_idx = torch.multinomial(w_, x.shape[0], replacement = True)
-
-        # print(m)
-        # print(w_)
-        # print(clust_idx)
-
-        
-        
         mean_qz = inference_outputs['qz'].mean
         scale_qz = inference_outputs['qz'].scale
         mean_qz = torch.index_select(
