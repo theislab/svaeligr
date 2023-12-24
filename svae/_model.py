@@ -667,7 +667,8 @@ class SpikeSlabVAE(
                'gumbel_action.log_alpha_encoder.0.fc_layers.Layer 1.0.weight',
               'gumbel_action.log_alpha_encoder.0.fc_layers.Layer 1.0.bias',
               'gumbel_action.log_alpha_encoder.1.weight',
-              'gumbel_action.log_alpha_encoder.1.bias']
+              'gumbel_action.log_alpha_encoder.1.bias',
+               "w_encoder.0.weight", "w_encoder.0.bias"]
         
         
         for key in keys:

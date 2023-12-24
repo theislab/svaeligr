@@ -10,7 +10,7 @@ from scvi.distributions import NegativeBinomial, ZeroInflatedNegativeBinomial
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
 from scvi.nn import DecoderSCVI, Encoder
 from torch import logsumexp
-from torch.distributions import Normal
+from torch.distributions import Normal, Dirichlet, Categorical
 from torch.distributions import kl_divergence as kl
 
 from ._utils import GumbelSigmoid
@@ -156,9 +156,11 @@ class SpikeSlabVAEModule(BaseModuleClass):
         self.action_prior_mean = torch.nn.parameter.Parameter(
             torch.randn((n_labels, n_latent))
         )
-        # mixture weights
+        # mixture weights (pi_a)
         self.w = torch.nn.Parameter(torch.randn(self.action_prior_mean.shape[0]))
-
+        # self.w_encoder = torch.nn.Sequential(
+        #     torch.nn.Linear(n_latent, 1), torch.nn.Softmax(dim=-1)
+        # )
 
         # p_a
         self.action_prior_logit_weight = torch.nn.parameter.Parameter(
@@ -312,26 +314,38 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # subsample actions we care about
         # extract chemical specific means
 
-        # print(y)
-        # print(y[:,0].long())
+        
         # print(mask)
 
+        # cluster assignment based on incoming labels (rather than all classes)
+       
+        # w_ = self.w_encoder(self.action_prior_mean)
+        w_ = torch.sigmoid(self.w)
+        w_mask = torch.zeros_like(w_)
+        w_mask[torch.unique(y[:, 0].long())] = 1
+        eps = 1e-7
+        w_ = torch.clamp(w_ * w_mask, min = eps)
+        pi_a = Dirichlet(w_).rsample()
+        # print(w.size())
         
+      
+        y_hat = Categorical(pi_a.squeeze()).sample(y[:, 0].long().size())
         
+
+        # print(y[:,0].long().size())
+        # print(y_hat.size())
+        # print(y[:,0].long())
+        # print(y_hat)
+        
+        # mean_z = torch.index_select(
+        #     self.action_prior_mean, 0, y[:, 0].long().to(self.action_prior_mean.device)
+        # )  # batch x latent dim
+
         mean_z = torch.index_select(
-            self.action_prior_mean, 0, y[:, 0].long().to(self.action_prior_mean.device)
+            self.action_prior_mean, 0, y_hat.to(self.action_prior_mean.device)
         )  # batch x latent dim
 
-        
-        # prune out entries according to mask
-        # mean_z_pruned = mean_z*mask
-        #order labels
-        # w = torch.sigmoid(self.w)
-        # w = w.squeeze()
-        # batch_size = mean_z_pruned.shape[0]
-        # y_multinom_labels = torch.multinomial(w, batch_size, replacement = True)
-        # y_order = self.match_and_sort_labels(y[:,0], y_multinom_labels)
-        # mean_z_pruned = mean_z_pruned[y_order,:]
+
         if self.use_chem_prior:
             pz = Normal(mean_z*mask, torch.ones_like(z))
         else:
@@ -342,7 +356,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
             px=px,
             pl=pl,
             pz=pz,
-            putative_labels = y[:, 0].long()
+            pw = w_
         )
 
     def freeze_params(self):
@@ -368,55 +382,6 @@ class SpikeSlabVAEModule(BaseModuleClass):
             self.gumbel_action.log_alpha[loc] = 5
         self.gumbel_action.threshold()
     
-    def match_and_sort_labels(self,y, y_b):
-        unique_to_y = list(set(y.tolist())- set(y_b.tolist()))
-        y_distinct = torch.unique(y_b)
-
-        y_b_indexes = torch.full((y_b.shape[0],),-1)
-        nonused_idx_y = []
-        nonused_idx_y_b = []
-        for item in unique_to_y:
-            idx_y = (y==item).nonzero().squeeze()
-            if idx_y.numel() == 1:
-                nonused_idx_y.append(idx_y.item())
-            else:
-                nonused_idx_y.extend(idx_y.tolist())
-
-        for item in y_distinct:
-            idx_y_b = (y_b == item).nonzero().squeeze()
-            idx_y = (y == item).nonzero().squeeze()
-            #if number of found elements is equal:
-            if idx_y_b.numel() == idx_y.numel():
-                if idx_y_b.numel() == 1:
-                    y_b_indexes[idx_y_b.item()] = idx_y.item()
-                else:
-                    y_b_indexes[idx_y_b.tolist()] = torch.tensor(idx_y.tolist())
-            # if number of found elements is not equal
-            elif idx_y_b.numel() < idx_y.numel(): 
-                if idx_y_b.numel() == 1:
-                    y_b_indexes[idx_y_b.item()] = idx_y.tolist()[0]
-                    nonused_idx_y.extend(idx_y.tolist()[1:])
-                else:
-                    y_b_indexes[idx_y_b.tolist()] = torch.tensor(idx_y.tolist()[:idx_y_b.numel()])
-                    nonused_idx_y.extend(idx_y.tolist()[idx_y_b.numel():])
-            elif idx_y_b.numel() > idx_y.numel():
-                if idx_y.numel() == 0:
-                    if idx_y_b.numel() == 1:
-                        nonused_idx_y_b.append(idx_y_b.item())
-                    elif idx_y_b.numel() > 1:
-                        nonused_idx_y_b.extend(idx_y_b.tolist())
-                elif idx_y.numel() == 1:
-                    y_b_indexes[idx_y_b.tolist()[0]] = idx_y.item()
-                    if len(idx_y_b.tolist()[1:]) == 1:
-                        nonused_idx_y_b.append(idx_y_b.tolist()[1])
-                    else:
-                        nonused_idx_y_b.extend(idx_y_b.tolist()[1:])
-                else:
-                    y_b_indexes[idx_y_b.tolist()[0:idx_y.numel()]] = torch.tensor(idx_y.tolist()[:idx_y.numel()])
-                    nonused_idx_y_b.extend(idx_y_b.tolist()[idx_y.numel():])
-        if nonused_idx_y_b != []:
-            y_b_indexes[nonused_idx_y_b[:]] = torch.tensor(nonused_idx_y[:])
-        return y_b_indexes
 
     def loss(
         self,
@@ -432,36 +397,37 @@ class SpikeSlabVAEModule(BaseModuleClass):
         n_obs: int = 1.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
+        pw = generative_outputs["pw"]
         
-        
-        m = generative_outputs['putative_labels']
-
-        # cluster assignment based on incoming labels (rather than all classes)
-        w_ = torch.index_select(
-            torch.sigmoid(self.w), 0, torch.unique(m.to(self.action_prior_mean.device))
-        )
-      
-        clust_idx = torch.multinomial(w_, x.shape[0], replacement = True)
-
-        # print(m)
-        # print(w_)
-        # print(clust_idx)
-
-        
-        
-        mean_qz = inference_outputs['qz'].mean
-        scale_qz = inference_outputs['qz'].scale
-        mean_qz = torch.index_select(
-            mean_qz, 0, clust_idx.to(self.action_prior_mean.device)
-        )
-        scale_qz = torch.index_select(
-            scale_qz, 0, clust_idx.to(self.action_prior_mean.device)
-        )
-        inference_outputs['qz'] = torch.distributions.normal.Normal(mean_qz, scale_qz)
 
         kl_divergence_z = kl(inference_outputs["qz"], generative_outputs["pz"]).sum(
             dim=1
         )
+
+        # mixture weight prior
+        kl_pw = kl(
+            Dirichlet(pw),
+            Dirichlet(0.05*torch.ones_like(pw))
+
+        ).sum(dim=-1)
+
+
+        # logp_mw = (
+        #     torch.distributions.Dirichlet(0.05*torch.ones_like(pw))
+        #     .log_prob(pw)
+        #     .sum()
+        # )
+        
+        # prior_mw = torch.ones_like(self.w)
+        # w_discrete =  torch.sigmoid(self.w) # torch.nn.functional.softmax(self.w, dim=0)
+        # logp_mw = -(
+        #     torch.distributions.Beta(prior_mw, prior_mw*self.sparse_mask_penalty)
+        #     .log_prob(w_discrete)
+        #     .sum()
+        # )
+        
+
+        
 
         
         kl_divergence_l = 0.0
@@ -472,13 +438,13 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         if self.warmup:
             weighted_kl_local = (
-                self.beta * kl_weight * kl_local_for_warmup + kl_local_no_warmup 
+                self.beta * kl_weight * kl_local_for_warmup + kl_local_no_warmup + kl_pw
             )
         else:
-            weighted_kl_local = kl_local_for_warmup + kl_local_no_warmup 
+            weighted_kl_local = kl_local_for_warmup + kl_local_no_warmup + kl_pw
 
         kl_local = dict(
-            kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
+            kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z, kl_pw = kl_pw
         )
 
         q_discrete = self.gumbel_action.get_proba()
@@ -497,14 +463,6 @@ class SpikeSlabVAEModule(BaseModuleClass):
             .sum()
         )
 
-        # mixture weight prior
-        prior_mw = torch.ones_like(self.w)
-        w_discrete =  torch.sigmoid(self.w) # torch.nn.functional.softmax(self.w, dim=0)
-        logp_mw = -(
-            torch.distributions.Beta(prior_mw, prior_mw*self.sparse_mask_penalty)
-            .log_prob(w_discrete)
-            .sum()
-        )
         
         replay_loss = torch.tensor(0.0)
         replay_loss = replay_loss.to(self.device)
@@ -550,18 +508,18 @@ class SpikeSlabVAEModule(BaseModuleClass):
             # Implementation detail described in the paper: line below describes the mathematical derivations in the paper
             # kl_global = torch.tensor(0.0) + kl_discrete - logp_w
             # Line below is the practical implementation, setting p_discrete to q_discrete
-            kl_global = torch.tensor(0.0) - logp_qw
+            kl_global = torch.tensor(0.0) - logp_qw #- logp_mw
             
             loss = (
                 n_obs * torch.mean(reconst_loss + weighted_kl_local)
-                + kl_weight * kl_global + replay_importance*replay_loss + ewc_importance*penalty + logp_mw
+                + kl_weight * kl_global + replay_importance*replay_loss + ewc_importance*penalty 
             )
         else:
-            loss = n_obs * torch.mean(reconst_loss + weighted_kl_local) + replay_importance*replay_loss + ewc_importance*penalty
+            loss = n_obs * torch.mean(reconst_loss + weighted_kl_local) + replay_importance*replay_loss + ewc_importance*penalty 
             kl_global = torch.tensor(0.0)
 
         return LossRecorder(loss, reconst_loss, kl_local, kl_global, replay_reconst_loss=torch.mean(replay_reconst_loss),
-                            ewc_loss=penalty, mixture_weight_prior = logp_mw) 
+                            ewc_loss=penalty, mixture_weight_prior = kl_pw) 
 
     @torch.no_grad()
     @auto_move_data
