@@ -8,7 +8,7 @@ from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
 from scvi.distributions import NegativeBinomial, ZeroInflatedNegativeBinomial
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
-from scvi.nn import DecoderSCVI, Encoder
+from scvi.nn import DecoderSCVI, Encoder, FCLayers, one_hot
 from torch import logsumexp
 from torch.distributions import Normal, Dirichlet, Categorical
 from torch.distributions import kl_divergence as kl
@@ -156,11 +156,30 @@ class SpikeSlabVAEModule(BaseModuleClass):
         self.action_prior_mean = torch.nn.parameter.Parameter(
             torch.randn((n_labels, n_latent))
         )
-        # mixture weights (pi_a)
-        self.w = torch.nn.Parameter(torch.randn(self.action_prior_mean.shape[0]))
+        
+
+        # mixture weights (pi_a) - hard assignment
+        
+        # self.w = torch.nn.Parameter(torch.randn(self.action_prior_mean.shape[0]))
         # self.w_encoder = torch.nn.Sequential(
-        #     torch.nn.Linear(n_latent, 1), torch.nn.Softmax(dim=-1)
+        #     torch.nn.Linear(n_latent, self.action_prior_mean.shape[0]), torch.nn.Softmax(dim=-1)
         # )
+
+        # mixture weights (pi_a) - soft assignment
+        self.w_encoder = torch.nn.Sequential(
+             FCLayers(
+                    n_in=n_latent,
+                    n_out=n_hidden,
+                    n_cat_list=None,
+                    n_layers=2,
+                    n_hidden=n_hidden,
+    #                 dropout_rate=dropout_amortization,
+                    use_layer_norm=True,
+                    use_batch_norm=False,
+   
+                ),
+                torch.nn.Linear(n_hidden, n_labels), torch.nn.Softmax(dim=-1)
+        )
 
         # p_a
         self.action_prior_logit_weight = torch.nn.parameter.Parameter(
@@ -320,16 +339,24 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # cluster assignment based on incoming labels (rather than all classes)
        
         # w_ = self.w_encoder(self.action_prior_mean)
-        w_ = torch.sigmoid(self.w)
-        w_mask = torch.zeros_like(w_)
-        w_mask[torch.unique(y[:, 0].long())] = 1
-        eps = 1e-7
+        w_ = self.w_encoder(mask) 
+        # w_ = torch.sigmoid(self.w)
+        
+        # w_mask = torch.zeros_like(w_)
+        # w_mask[torch.unique(y[:, 0].long())] = 1
+
+        
+        w_mask = one_hot(y, self.n_labels)
+        
+        eps = 0.01
         w_ = torch.clamp(w_ * w_mask, min = eps)
+        # print(w_.size())
         pi_a = Dirichlet(w_).rsample()
-        # print(w.size())
+        # print(pi_a.size())
         
       
-        y_hat = Categorical(pi_a.squeeze()).sample(y[:, 0].long().size())
+        # y_hat = Categorical(pi_a.squeeze()).sample(y[:, 0].long().size())
+        y_hat = Categorical(pi_a).sample()
         
 
         # print(y[:,0].long().size())
