@@ -160,7 +160,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         # mixture weights (pi_a) - hard assignment
         
-        # self.w = torch.nn.Parameter(torch.randn(self.action_prior_mean.shape[0]))
+        self.w = torch.nn.Parameter(torch.randn(self.action_prior_mean.shape[0]))
         # self.w_encoder = torch.nn.Sequential(
         #     torch.nn.Linear(n_latent, self.action_prior_mean.shape[0]), torch.nn.Softmax(dim=-1)
         # )
@@ -338,18 +338,18 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         # cluster assignment based on incoming labels (rather than all classes)
        
-        # w_ = self.w_encoder(self.action_prior_mean)
-        w_ = self.w_encoder(mask) 
-        # w_ = torch.sigmoid(self.w)
-        
+       
+        # w_ = torch.sigmoid(self.w)   
         # w_mask = torch.zeros_like(w_)
         # w_mask[torch.unique(y[:, 0].long())] = 1
 
+        #w_ = self.w_encoder(self.action_prior_mean) # old
+        # w_ = self.w_encoder(mask) 
+        w_ = self.w_encoder(mask) 
+        # w_mask = one_hot(y, self.n_labels)
         
-        w_mask = one_hot(y, self.n_labels)
-        
-        eps = 0.01
-        w_ = torch.clamp(w_ * w_mask, min = eps)
+        # eps = 0.01
+        # w_ = torch.clamp(w_ * w_mask, min = eps)
         # print(w_.size())
         pi_a = Dirichlet(w_).rsample()
         # print(pi_a.size())
@@ -364,9 +364,9 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # print(y[:,0].long())
         # print(y_hat)
         
-        # mean_z = torch.index_select(
-        #     self.action_prior_mean, 0, y[:, 0].long().to(self.action_prior_mean.device)
-        # )  # batch x latent dim
+        mean_z_c = torch.index_select(
+            self.action_prior_mean, 0, y[:, 0].long().to(self.action_prior_mean.device)
+        )  # batch x latent dim
 
         mean_z = torch.index_select(
             self.action_prior_mean, 0, y_hat.to(self.action_prior_mean.device)
@@ -375,14 +375,17 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         if self.use_chem_prior:
             pz = Normal(mean_z*mask, torch.ones_like(z))
+            pz_c = Normal(mean_z_c*mask, torch.ones_like(z))
         else:
             pz = Normal(torch.zeros_like(z), torch.ones_like(z))
+            pz_c = None
         # we will enforce proba of mask to be sparse, so that means that most of the time mask should be zero, and turn off the action specific prior
 
         return dict(
             px=px,
             pl=pl,
             pz=pz,
+            pz_c = pz_c,
             pw = w_
         )
 
@@ -434,9 +437,16 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # mixture weight prior
         kl_pw = kl(
             Dirichlet(pw),
-            Dirichlet(0.05*torch.ones_like(pw))
+            Dirichlet((1/self.n_labels)*torch.ones_like(pw))
 
         ).sum(dim=-1)
+
+        # mixture clusters KL
+        kl_divergence_c = kl(
+             generative_outputs["pz"], generative_outputs["pz_c"]).sum(
+            dim=1
+        )
+            
 
 
         # logp_mw = (
@@ -465,13 +475,13 @@ class SpikeSlabVAEModule(BaseModuleClass):
 
         if self.warmup:
             weighted_kl_local = (
-                self.beta * kl_weight * kl_local_for_warmup + kl_local_no_warmup + kl_pw
+                self.beta * kl_weight * kl_local_for_warmup + kl_local_no_warmup + kl_pw + kl_divergence_c
             )
         else:
-            weighted_kl_local = kl_local_for_warmup + kl_local_no_warmup + kl_pw
+            weighted_kl_local = kl_local_for_warmup + kl_local_no_warmup + kl_pw + kl_divergence_c
 
         kl_local = dict(
-            kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z, kl_pw = kl_pw
+            kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z, kl_pw = kl_pw, kl_divergence_c = kl_divergence_c
         )
 
         q_discrete = self.gumbel_action.get_proba()
@@ -502,8 +512,13 @@ class SpikeSlabVAEModule(BaseModuleClass):
             replay_kl_divergence_z = kl(replay_inference_outputs["qz"], replay_generative_outputs["pz"]).sum(
                 dim=1
             )
+            replay_kl_divergence_c = kl(
+                 generative_outputs["pz"],
+                 generative_outputs["pz_c"]).sum(
+                dim=1
+            )
             replay_reconst_loss = -replay_generative_outputs["px"].log_prob(x).sum(-1)
-            replay_loss = n_obs * torch.mean(replay_reconst_loss + replay_kl_divergence_z) # Requires full ELBO instead?
+            replay_loss = n_obs * torch.mean(replay_reconst_loss + replay_kl_divergence_z + replay_kl_divergence_c) # Requires full ELBO instead?
 
         
         
@@ -545,8 +560,11 @@ class SpikeSlabVAEModule(BaseModuleClass):
             loss = n_obs * torch.mean(reconst_loss + weighted_kl_local) + replay_importance*replay_loss + ewc_importance*penalty 
             kl_global = torch.tensor(0.0)
 
-        return LossRecorder(loss, reconst_loss, kl_local, kl_global, replay_reconst_loss=torch.mean(replay_reconst_loss),
-                            ewc_loss=penalty, mixture_weight_prior = kl_pw) 
+        return LossRecorder(loss, reconst_loss, kl_local, kl_global, 
+                            replay_reconst_loss=torch.mean(replay_reconst_loss),
+                            replay_loss = replay_loss, 
+                            ewc_loss=penalty,
+                            mixture_weight_prior = kl_pw, kl_divergence_c = torch.mean(kl_divergence_c)) 
 
     @torch.no_grad()
     @auto_move_data
