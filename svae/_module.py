@@ -168,7 +168,7 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # mixture weights (pi_a) - soft assignment
         self.w_encoder = torch.nn.Sequential(
              FCLayers(
-                    n_in=n_latent,
+                    n_in=n_latent+n_latent,
                     n_out=n_hidden,
                     n_cat_list=None,
                     n_layers=2,
@@ -344,13 +344,24 @@ class SpikeSlabVAEModule(BaseModuleClass):
         # w_mask[torch.unique(y[:, 0].long())] = 1
 
         #w_ = self.w_encoder(self.action_prior_mean) # old
-        # w_ = self.w_encoder(mask) 
-        w_ = self.w_encoder(mask) 
-        # w_mask = one_hot(y, self.n_labels)
         
+        ## pi_a informed by qz of samples in the target domain
+        # w_ = self.w_encoder(z) 
+
+        ## pi_a informed by mask 
+        # w_ = self.w_encoder(mask) 
+
+        # pi_a informed by encoding of the gr replay samples and the mask (i.e. their labels)
+        gr_inference_outputs = self.inference(x = x_gr, batch_index = None)
+        w_ = self.w_encoder(torch.cat((mask, gr_inference_outputs['z']), 1)) 
+        
+        ## masking applied to cluster weight priors to only account for labels in the training batch
+        # w_mask = one_hot(y, self.n_labels)
         # eps = 0.01
         # w_ = torch.clamp(w_ * w_mask, min = eps)
         # print(w_.size())
+
+        
         pi_a = Dirichlet(w_).rsample()
         # print(pi_a.size())
         
