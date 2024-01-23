@@ -360,11 +360,12 @@ class CLTrainingPlan(pl.LightningModule):
             )  
             batch_replay = next(iter(scdl))
         
-        if self.module.learnable_actions:
+        if self.module.learnable_actions and not self.module.useCLTrainingPlan:
             _, _, scvi_loss = self.forward(batch, batch_generative_replay, loss_kwargs=self.loss_kwargs)
-        elif self.replay_adata_manager is not None:
+        elif self.module.useCLTrainingPlan:     
             _, _, scvi_loss = self.forward(batch, batch_generative_replay, batch_replay, loss_kwargs=self.loss_kwargs)
         else:
+            print('normal training forward call')      
             _, _, scvi_loss = self.forward(batch, generative_replay_tensors=None, replay_tensors = None, loss_kwargs=self.loss_kwargs)
 
         
@@ -407,9 +408,9 @@ class CLTrainingPlan(pl.LightningModule):
             )
             batch_replay = next(iter(scdl))
         
-        if self.module.learnable_actions:
+        if self.module.learnable_actions and not self.module.useCLTrainingPlan:
             _, _, scvi_loss = self.forward(batch, batch_generative_replay, loss_kwargs=self.loss_kwargs)
-        elif self.replay_adata_manager is not None:
+        elif self.module.useCLTrainingPlan:
             _, _, scvi_loss = self.forward(batch, batch_generative_replay, batch_replay, loss_kwargs=self.loss_kwargs)
         else:
             _, _, scvi_loss = self.forward(batch, generative_replay_tensors=None, replay_tensors = None, loss_kwargs=self.loss_kwargs)
